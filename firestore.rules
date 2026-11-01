@@ -1,16 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Events: Lesen ist oeffentlich, Schreiben nur fuer authentifizierte Admins.
-    match /events/{eventId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+
+    // Nur der fest definierte Admin-Account darf schreiben.
+    // WICHTIG: Eine reine Pruefung auf request.auth != null genuegt NICHT,
+    // da sich jeder ueber die Firebase-API selbst registrieren kann.
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == 'basement.events@proton.me';
     }
 
-    // Einstellungen (Social Links): Lesen ist oeffentlich, Schreiben nur fuer authentifizierte Admins.
+    // Events: Lesen ist oeffentlich, Schreiben nur fuer den Admin.
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Einstellungen (Social Links): Lesen ist oeffentlich, Schreiben nur fuer den Admin.
     match /settings/{document} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
 
     // Standard: Alles andere ist verboten (least privilege).
