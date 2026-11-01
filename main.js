@@ -26,6 +26,85 @@ const auth = getAuth(app);
 let events = [];
 let isLoggedIn = false;
 
+// --- Security Utilities ---
+// Escapes HTML special characters to prevent Stored/DOM XSS when injecting
+// user-controlled strings into innerHTML templates.
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// Validates URLs and only allows http:// and https:// schemes (or relative paths).
+// Rejects dangerous schemes such as javascript:, data: and vbscript:.
+function sanitizeUrl(url) {
+    if (!url) return '';
+    try {
+        const parsed = new URL(url, window.location.origin);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.href;
+        }
+    } catch (e) {
+        // Invalid URL
+    }
+    return '';
+}
+
+// Builds a safe event card. All dynamic values are escaped/validated before
+// being injected into the innerHTML template.
+function createEventCard(event) {
+    const formattedDate = new Date(event.date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+    const safeTitle = escapeHtml(event.title || event.venue.split(',')[0]);
+    const safeVenue = escapeHtml(event.venue);
+    const safeStart = escapeHtml(event.start);
+    const safeEnd = escapeHtml(event.end);
+    const safePrice = event.price ? escapeHtml(event.price) : '';
+    const safeImgUrl = sanitizeUrl(event.imgUrl) || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?q=80&w=800&auto=format&fit=crop';
+    const safeDjs = event.djs
+        ? event.djs.split(',').map(dj => `<li>${escapeHtml(dj.trim())}</li>`).join('')
+        : '';
+    const encodedVenue = encodeURIComponent(event.venue);
+
+    const card = document.createElement('div');
+    card.className = 'event-card glass-panel';
+    card.innerHTML = `
+        <div class="event-date-badge">${formattedDate}</div>
+        <img src="${safeImgUrl}" alt="Flyer" class="event-card-img">
+        <div class="event-info">
+            <h3>${safeTitle}</h3>
+            <div class="event-detail">
+                <span>🕒</span> ${safeStart} - ${safeEnd}
+            </div>
+            <div class="event-detail">
+                <span>📍</span> ${safeVenue}
+            </div>
+            <div class="event-djs">
+                <div class="lineup-label">🎵 Lineup:</div>
+                <ul class="lineup-list">
+                    ${safeDjs}
+                </ul>
+            </div>
+            ${safePrice ? `<div class="event-detail"><span>💶</span> ${safePrice}</div>` : ''}
+            <div class="map-mini" data-venue="${encodedVenue}">
+                <iframe 
+                    width="100%" 
+                    height="100%" 
+                    style="border:0;" 
+                    loading="lazy" 
+                    allowfullscreen 
+                    src="https://maps.google.com/maps?q=${encodedVenue}&t=&z=15&ie=UTF8&iwloc=&output=embed">
+                </iframe>
+            </div>
+        </div>
+    `;
+    return card;
+}
+
+
 // Wir nutzen nun Echtzeit-Listener von Firestore
 function initData() {
     // Events Listener
@@ -322,41 +401,7 @@ function renderEvents(eventsData) {
     });
 
     upcomingEvents.forEach(event => {
-        const formattedDate = new Date(event.date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-
-        const card = document.createElement('div');
-        card.className = 'event-card glass-panel';
-
-        card.innerHTML = `
-            <div class="event-date-badge">${formattedDate}</div>
-            <img src="${event.imgUrl || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?q=80&w=800&auto=format&fit=crop'}" alt="Flyer" class="event-card-img">
-            <div class="event-info">
-                <h3>${event.title || event.venue.split(',')[0]}</h3>
-                <div class="event-detail">
-                    <span>🕒</span> ${event.start} - ${event.end}
-                </div>
-                <div class="event-detail">
-                    <span>📍</span> ${event.venue}
-                </div>
-                <div class="event-djs">
-                    <div class="lineup-label">🎵 Lineup:</div>
-                    <ul class="lineup-list">
-                        ${event.djs.split(',').map(dj => `<li>${dj.trim()}</li>`).join('')}
-                    </ul>
-                </div>
-                ${event.price ? `<div class="event-detail"><span>💶</span> ${event.price}</div>` : ''}
-                <div class="map-mini" data-venue="${encodeURIComponent(event.venue)}">
-                    <iframe 
-                        width="100%" 
-                        height="100%" 
-                        style="border:0;" 
-                        loading="lazy" 
-                        allowfullscreen 
-                        src="https://maps.google.com/maps?q=${encodeURIComponent(event.venue)}&t=&z=15&ie=UTF8&iwloc=&output=embed">
-                    </iframe>
-                </div>
-            </div>
-        `;
+        const card = createEventCard(event);
         grid.appendChild(card);
     });
 
@@ -388,41 +433,7 @@ function renderPastEvents(eventsData) {
     });
 
     pastEvents.forEach(event => {
-        const formattedDate = new Date(event.date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-
-        const card = document.createElement('div');
-        card.className = 'event-card glass-panel';
-
-        card.innerHTML = `
-            <div class="event-date-badge">${formattedDate}</div>
-            <img src="${event.imgUrl || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?q=80&w=800&auto=format&fit=crop'}" alt="Flyer" class="event-card-img">
-            <div class="event-info">
-                <h3>${event.title || event.venue.split(',')[0]}</h3>
-                <div class="event-detail">
-                    <span>🕒</span> ${event.start} - ${event.end}
-                </div>
-                <div class="event-detail">
-                    <span>📍</span> ${event.venue}
-                </div>
-                <div class="event-djs">
-                    <div class="lineup-label">🎵 Lineup:</div>
-                    <ul class="lineup-list">
-                        ${event.djs.split(',').map(dj => `<li>${dj.trim()}</li>`).join('')}
-                    </ul>
-                </div>
-                ${event.price ? `<div class="event-detail"><span>💶</span> ${event.price}</div>` : ''}
-                <div class="map-mini" data-venue="${encodeURIComponent(event.venue)}">
-                    <iframe 
-                        width="100%" 
-                        height="100%" 
-                        style="border:0;" 
-                        loading="lazy" 
-                        allowfullscreen 
-                        src="https://maps.google.com/maps?q=${encodeURIComponent(event.venue)}&t=&z=15&ie=UTF8&iwloc=&output=embed">
-                    </iframe>
-                </div>
-            </div>
-        `;
+        const card = createEventCard(event);
         grid.appendChild(card);
     });
 
@@ -453,14 +464,18 @@ function renderAdminEvents() {
         item.style.display = 'flex';
         item.style.justifyContent = 'space-between';
 
+        const safeTitle = escapeHtml(event.title || event.venue.split(',')[0]);
+        const safeDate = escapeHtml(event.date);
+        const safeId = escapeHtml(event.id);
+
         item.innerHTML = `
             <div>
-                <h5 style="color: var(--neon-cyan); margin-bottom: 0.3rem; font-size: 1.1rem;">${event.title || event.venue.split(',')[0]}</h5>
-                <div style="font-size: 0.8rem; color: #ccc;">📅 ${event.date}</div>
+                <h5 style="color: var(--neon-cyan); margin-bottom: 0.3rem; font-size: 1.1rem;">${safeTitle}</h5>
+                <div style="font-size: 0.8rem; color: #ccc;">📅 ${safeDate}</div>
             </div>
             <div style="display: flex; gap: 0.5rem; flex-direction: column;">
-                <button class="btn-edit" data-id="${event.id}" style="background: transparent; color: #fff; border: 1px solid #fff; cursor: pointer; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; transition: background 0.3s; width: 60px;">BEARB.</button>
-                <button class="btn-delete" data-id="${event.id}" style="background: transparent; color: #ff3366; border: 1px solid #ff3366; cursor: pointer; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; transition: background 0.3s; width: 60px;">LÖSCHEN</button>
+                <button class="btn-edit" data-id="${safeId}" style="background: transparent; color: #fff; border: 1px solid #fff; cursor: pointer; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; transition: background 0.3s; width: 60px;">BEARB.</button>
+                <button class="btn-delete" data-id="${safeId}" style="background: transparent; color: #ff3366; border: 1px solid #ff3366; cursor: pointer; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; transition: background 0.3s; width: 60px;">LÖSCHEN</button>
             </div>
         `;
         list.appendChild(item);
@@ -607,6 +622,11 @@ function setupUI() {
     });
 
     // Firebase Auth State Tracking
+    // HINWEIS: Die Authentifizierung selbst findet serverseitig bei Firebase statt.
+    // `isLoggedIn` steuert ausschliesslich die Sichtbarkeit der Admin-UI und ist
+    // KEINE Sicherheitsgrenze. Die eigentliche Autorisierung (wer darf Events
+    // schreiben/loeschen) wird serverseitig durch die Firestore Security Rules
+    // in `firestore.rules` erzwungen (request.auth != null).
     onAuthStateChanged(auth, (user) => {
         if (user) {
             isLoggedIn = true;
@@ -659,6 +679,15 @@ function setupUI() {
         console.log("Speichervorgang gestartet...");
 
         const idField = document.getElementById('event-id').value;
+        // Defense in depth: validate the image URL before it is written to Firestore.
+        // This rejects dangerous schemes such as javascript:, data: or vbscript:.
+        const rawImgUrl = document.getElementById('event-flyer').value;
+        const imgUrl = rawImgUrl ? sanitizeUrl(rawImgUrl) : 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?q=80&w=800&auto=format&fit=crop';
+        if (rawImgUrl && !imgUrl) {
+            alert('Ungültige Bild-URL. Bitte eine vollständige http(s)://-URL angeben.');
+            return;
+        }
+
         const eData = {
             title: document.getElementById('event-title').value,
             date: document.getElementById('event-date').value,
@@ -667,7 +696,7 @@ function setupUI() {
             venue: document.getElementById('event-venue').value,
             djs: document.getElementById('event-djs').value,
             price: document.getElementById('event-price').value,
-            imgUrl: document.getElementById('event-flyer').value || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?q=80&w=800&auto=format&fit=crop'
+            imgUrl: imgUrl
         };
 
         try {
@@ -690,11 +719,29 @@ function setupUI() {
     // Social Form Submit
     document.getElementById('social-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        // Defense in depth: validate every submitted social URL before writing it
+        // to Firestore. Only http(s):// URLs are accepted.
+        const rawSocials = {
+            mixcloud: document.getElementById('social-mixcloud').value,
+            soundcloud: document.getElementById('social-soundcloud').value,
+            facebook: document.getElementById('social-facebook').value,
+            instagram: document.getElementById('social-instagram').value
+        };
+        const sanitizedSocials = {};
+        for (const [key, rawUrl] of Object.entries(rawSocials)) {
+            const safeUrl = rawUrl ? sanitizeUrl(rawUrl) : '';
+            if (rawUrl && !safeUrl) {
+                alert(`Ungültige ${key}-URL. Bitte eine vollständige http(s)://-URL angeben.`);
+                return;
+            }
+            sanitizedSocials[key] = safeUrl;
+        }
+
         const socialData = {
-            mixcloud: { url: document.getElementById('social-mixcloud').value, show: document.getElementById('show-mixcloud').checked },
-            soundcloud: { url: document.getElementById('social-soundcloud').value, show: document.getElementById('show-soundcloud').checked },
-            facebook: { url: document.getElementById('social-facebook').value, show: document.getElementById('show-facebook').checked },
-            instagram: { url: document.getElementById('social-instagram').value, show: document.getElementById('show-instagram').checked }
+            mixcloud: { url: sanitizedSocials.mixcloud, show: document.getElementById('show-mixcloud').checked },
+            soundcloud: { url: sanitizedSocials.soundcloud, show: document.getElementById('show-soundcloud').checked },
+            facebook: { url: sanitizedSocials.facebook, show: document.getElementById('show-facebook').checked },
+            instagram: { url: sanitizedSocials.instagram, show: document.getElementById('show-instagram').checked }
         };
 
         try {
@@ -911,10 +958,12 @@ function renderSocialLinks(data) {
     };
 
     for (const [key, val] of Object.entries(data)) {
-        if (val.show && val.url) {
+        const safeUrl = sanitizeUrl(val.url);
+        if (val.show && safeUrl) {
             const a = document.createElement('a');
-            a.href = val.url;
+            a.href = safeUrl;
             a.target = '_blank';
+            a.rel = 'noopener noreferrer';
             a.className = 'social-link-item';
             a.innerHTML = icons[key] || '';
             container.appendChild(a);
